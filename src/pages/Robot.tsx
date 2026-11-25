@@ -12,6 +12,10 @@ import type { Change } from './Wallet'
 export function Robot({ state, change, ready, signals, price, notificationPermission, enableNotifications }: { state: State; change: Change; ready: boolean; signals?: Point[]; price?: number; notificationPermission: string; enableNotifications: () => void }) {
   const deviation = volatility(signals ?? [])
   const last = state.operations.at(-1)
+  const purchase = state.operations.findLast(operation => operation.side === 'Compra')
+  const sale = state.operations.findLast(operation => operation.side === 'Venda')
+  const realized = state.operations.reduce((sum, operation) => sum + (operation.result ?? 0), 0)
+  const estimated = state.btc > 0 && price !== undefined ? netPositionProfit(state, price) : undefined
   const status = (next: State['status']) => void change(current => ({ ...current, status: next }))
   return <>
     <section className="panel form">
@@ -21,13 +25,25 @@ export function Robot({ state, change, ready, signals, price, notificationPermis
         <button disabled={state.status !== 'Em execução'} onClick={() => status('Pausado')}><Pause size={16} /> Pausar</button>
         <button disabled={state.status === 'Parado'} onClick={() => status('Parado')}><Square size={16} /> Interromper</button>
       </div>
+      {state.status === 'Em execução' && ready && !state.btc && <p>Compra automática ativa. Aguardando uma cotação acima da anterior, com saldo e margem de exposição disponíveis.</p>}
+      {(state.status === 'Parado' || state.status === 'Pausado') && <p>Use Iniciar para ativar compras e vendas automáticas com saldo virtual.</p>}
       {!ready && <p role="status" className="notice">Aguardando dados de mercado recentes para simular operações.</p>}
       <p>A primeira cotação serve de referência. O simulador consulta o mercado a cada 90 segundos enquanto a aplicação estiver aberta.</p>
       {notificationPermission === 'default' && <button onClick={enableNotifications}>Ativar notificações do navegador</button>}
       {notificationPermission === 'granted' && <p>Notificações do navegador ativadas.</p>}
       {notificationPermission === 'denied' && <p>Notificações bloqueadas. Para permitir, altere a permissão do site no navegador.</p>}
-      {state.btc > 0 && price && <p>Resultado líquido estimado {money(netPositionProfit(state, price))} · Pico registrado {money(state.profitPeak ?? 0)}{Boolean(state.profitPeak && state.profitPeak > 0) && <> · Gatilho de venda {money(state.profitPeak! * 0.70)} de lucro líquido</>}</p>}
+      {state.btc > 0 && price && <p>Pico de lucro registrado {money(state.profitPeak ?? 0)}{Boolean(state.profitPeak && state.profitPeak > 0) && <> · Gatilho de venda {money(state.profitPeak! * 0.70)} de lucro líquido</>}</p>}
       {last && <p>Última decisão · {last.side} · {timestamp(last.time)}<br />{last.reason}</p>}
+    </section>
+    <section className="panel form">
+      <h2>Compras e resultados simulados</h2>
+      <div className="grid metrics four">
+        <Metric label="Última compra virtual" value={purchase ? money(purchase.value + purchase.fee) : '—'} detail={purchase ? timestamp(purchase.time) + ' · Inclui taxa de ' + money(purchase.fee) : 'Nenhuma compra registrada'} />
+        <Metric label="Resultado da posição aberta" value={estimated === undefined ? '—' : money(estimated)} detail={state.btc > 0 ? 'Estimativa após taxas pela última cotação disponível' : 'Nenhuma posição em aberto'} />
+        <Metric label="Resultado da última venda" value={sale?.result == null ? '—' : money(sale.result)} detail={sale ? timestamp(sale.time) + ' · Após taxas' : 'Nenhuma venda registrada'} />
+        <Metric label="Resultado líquido realizado" value={sale ? money(realized) : '—'} detail="Total das vendas registradas, após taxas" />
+      </div>
+      <a href="#operacoes">Ver histórico de operações</a>
     </section>
     <div className="grid metrics three">
       <Metric label="Volatilidade da série" value={deviation === null ? '—' : percent(deviation)} detail="Desvio padrão dos retornos por intervalo na série de 7 dias" />
