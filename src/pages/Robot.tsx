@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from 'react'
 import { Pause, Play, Square } from 'lucide-react'
-import { backtest } from '../engine/simulation'
+import { backtest, netPositionProfit } from '../engine/simulation'
 import { volatility } from '../engine/analysis'
 import { fetchHistory } from '../services/market'
 import { storage } from '../storage/database'
@@ -9,20 +9,24 @@ import type { Point, State } from '../types'
 import { money, percent, timestamp } from '../utils/format'
 import type { Change } from './Wallet'
 
-export function Robot({ state, change, ready, signals }: { state: State; change: Change; ready: boolean; signals?: Point[] }) {
+export function Robot({ state, change, ready, signals, price, notificationPermission, enableNotifications }: { state: State; change: Change; ready: boolean; signals?: Point[]; price?: number; notificationPermission: string; enableNotifications: () => void }) {
   const deviation = volatility(signals ?? [])
   const last = state.operations.at(-1)
   const status = (next: State['status']) => void change(current => ({ ...current, status: next }))
   return <>
     <section className="panel form">
-      <div className="section-head bare"><div><h2>Simulador de tendências</h2><p>Médias móveis de 3 e 8 amostras com limite de diferença de 0,5%. Análise por regras matemáticas.</p></div><span className="badge">{state.status}</span></div>
+      <div className="section-head bare"><div><h2>Simulador de tendências</h2><p>Abre uma posição virtual na alta, dentro dos limites da carteira. Vende quando o lucro líquido recua 30% em relação ao maior lucro registrado nessa posição.</p></div><span className="badge">{state.status}</span></div>
       <div className="actions">
         <button className="primary" disabled={state.status === 'Em execução'} onClick={() => status('Em execução')}><Play size={16} /> Iniciar</button>
         <button disabled={state.status !== 'Em execução'} onClick={() => status('Pausado')}><Pause size={16} /> Pausar</button>
         <button disabled={state.status === 'Parado'} onClick={() => status('Parado')}><Square size={16} /> Interromper</button>
       </div>
       {!ready && <p role="status" className="notice">Aguardando dados de mercado recentes para simular operações.</p>}
-      <p>A simulação acompanha o mercado enquanto a aplicação estiver aberta.</p>
+      <p>A primeira cotação serve de referência. O simulador consulta o mercado a cada 90 segundos enquanto a aplicação estiver aberta.</p>
+      {notificationPermission === 'default' && <button onClick={enableNotifications}>Ativar notificações do navegador</button>}
+      {notificationPermission === 'granted' && <p>Notificações do navegador ativadas.</p>}
+      {notificationPermission === 'denied' && <p>Notificações bloqueadas. Para permitir, altere a permissão do site no navegador.</p>}
+      {state.btc > 0 && price && <p>Resultado líquido estimado {money(netPositionProfit(state, price))} · Pico registrado {money(state.profitPeak ?? 0)}{Boolean(state.profitPeak && state.profitPeak > 0) && <> · Gatilho de venda {money(state.profitPeak! * 0.70)} de lucro líquido</>}</p>}
       {last && <p>Última decisão · {last.side} · {timestamp(last.time)}<br />{last.reason}</p>}
     </section>
     <div className="grid metrics three">
@@ -59,7 +63,7 @@ function Backtest({ risk }: { risk: State['risk'] }) {
       }
       if (!points) throw new Error('Não há histórico armazenado para esse período.')
       setResult(backtest(points, Number(capital), risk))
-      setRange(timestamp(points[8].time) + ' a ' + timestamp(points.at(-1)!.time) + (fromCache ? ' · Histórico armazenado' : ' · CoinGecko'))
+      setRange(timestamp(points[2].time) + ' a ' + timestamp(points.at(-1)!.time) + (fromCache ? ' · Histórico armazenado' : ' · CoinGecko'))
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'Falha ao executar o teste.')
     } finally { setRunning(false) }
@@ -81,6 +85,6 @@ function Backtest({ risk }: { risk: State['risk'] }) {
       </div>
       {result.state.operations.at(-1) && <p>Última decisão registrada · {result.state.operations.at(-1)?.reason}</p>}
     </>}
-    <p>As primeiras oito amostras formam o sinal inicial. Cada decisão usa preços anteriores à execução. O teste desconsidera derrapagem e liquidez. Resultados históricos podem variar em simulações futuras.</p>
+    <p>As duas primeiras amostras formam o sinal inicial. O teste compara os dois preços anteriores e executa na amostra seguinte. O teste desconsidera derrapagem e liquidez. Resultados históricos podem variar em simulações futuras.</p>
   </section>
 }

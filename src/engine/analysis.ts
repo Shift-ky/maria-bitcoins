@@ -1,13 +1,17 @@
 import type { Point, Side } from '../types'
 
-export function analyze(history: Point[]): { side: Side; reason: string } {
-  if (history.length < 8) return { side: 'Manutenção', reason: 'Amostra insuficiente para calcular as médias.' }
-  const recent = history.slice(-8)
-  const mean = (points: Point[]) => points.reduce((sum, point) => sum + point.price, 0) / points.length
-  const spread = mean(recent.slice(-3)) / mean(recent) - 1
-  if (spread > 0.005) return { side: 'Compra', reason: 'A média curta superou a média longa em mais de 0,5%.' }
-  if (spread < -0.005) return { side: 'Venda', reason: 'A média curta ficou mais de 0,5% abaixo da média longa.' }
-  return { side: 'Manutenção', reason: 'A diferença entre as médias ficou dentro de ±0,5%.' }
+export const profitGiveback = 0.30
+
+export function analyze(previous: number | undefined, price: number, position?: { profit: number; peak: number }): { side: Side; reason: string } {
+  if (position) {
+    if (position.peak > 0 && position.profit <= position.peak * (1 - profitGiveback) + 1e-8) {
+      return { side: 'Venda', reason: 'O lucro líquido recuou pelo menos 30% em relação ao pico da posição.' }
+    }
+    return { side: 'Manutenção', reason: 'Posição em aberto. Aguardando recuo de 30% a partir do pico de lucro líquido.' }
+  }
+  if (previous === undefined) return { side: 'Manutenção', reason: 'Primeira cotação registrada como referência.' }
+  if (price > previous) return { side: 'Compra', reason: 'O preço do Bitcoin subiu em relação à cotação anterior.' }
+  return { side: 'Manutenção', reason: 'Aguardando uma alta para iniciar nova posição.' }
 }
 
 export function volatility(points: Point[]) {

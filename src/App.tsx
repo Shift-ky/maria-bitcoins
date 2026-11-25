@@ -2,8 +2,9 @@ import { useEffect, useState } from 'react'
 import { Activity, Bitcoin, Bot, ChartNoAxesCombined, ClipboardList, LayoutDashboard, Moon, Settings as SettingsIcon, Sun, Wallet, Waves } from 'lucide-react'
 import { useMarket } from './hooks/useMarket'
 import { useWallet } from './hooks/useWallet'
-import { analyze } from './engine/analysis'
-import { equity, execute } from './engine/simulation'
+import { useTradeNotifications } from './hooks/useTradeNotifications'
+import type { Operation } from './types'
+import { equity, evaluatePrice } from './engine/simulation'
 import { Metric } from './components/Metric'
 import { Operations } from './components/Operations'
 import { MarketChart, MarketMetrics } from './pages/Market'
@@ -27,6 +28,7 @@ type InstallPrompt = Event & { prompt: () => Promise<unknown>; userChoice: Promi
 
 export default function App() {
   const { wallet, change, error } = useWallet()
+  const notifications = useTradeNotifications()
   const [page, setPage] = useState(getPage)
   const [days, setDays] = useState(7)
   const [clock, setClock] = useState(Date.now)
@@ -36,8 +38,7 @@ export default function App() {
   const { online, quote, signals, verifiedAt } = market
   const theme = wallet?.theme ?? 'dark'
   const price = quote?.brl
-  const ready = Boolean(online && quote && verifiedAt && clock - verifiedAt < 150000 && Math.abs(clock - quote.time) < 900000 &&
-    signals && signals.filter(point => point.time < quote.time && quote.time - point.time < 86400000).length >= 8)
+  const ready = Boolean(online && quote && verifiedAt && clock - verifiedAt < 150000 && Math.abs(clock - quote.time) < 900000)
   const last = wallet?.operations.at(-1)?.time
   useEffect(() => {
     const onRoute = () => { setPage(getPage()); window.scrollTo(0, 0) }
@@ -56,13 +57,19 @@ export default function App() {
   }, [])
   useEffect(() => { document.documentElement.dataset.theme = theme }, [theme])
   useEffect(() => {
-    if (!ready || !navigator.onLine || wallet?.status !== 'Em execução' || !quote || !signals || (last !== undefined && quote.time <= last)) return
-    const decision = analyze(signals.filter(point => point.time < quote.time).slice(-8))
-    void change(current => current.status === 'Em execução' && navigator.onLine && Date.now() - verifiedAt < 150000 && Math.abs(Date.now() - quote.time) < 900000
-      ? execute(current, { time: quote.time, price: quote.brl }, decision) : current)
-  // Quote, signal and persisted robot state determine when to evaluate a fresh price.
+    if (!ready || !navigator.onLine || wallet?.status !== 'Em execução' || !quote || (last !== undefined && quote.time <= last)) return
+    let operation: Operation | undefined
+    void change(current => {
+      if (current.status !== 'Em execução' || !navigator.onLine || Date.now() - verifiedAt >= 150000 || Math.abs(Date.now() - quote.time) >= 900000) return current
+      const next = evaluatePrice(current, { time: quote.time, price: quote.brl })
+      if (next !== current) operation = next.operations.at(-1)
+      return next
+    }).then(saved => {
+      if (saved && operation) void notifications.notify(operation)
+    })
+  // Quote and persisted robot state determine when to evaluate a fresh price.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ready, quote, signals, wallet?.status, last, verifiedAt])
+  }, [ready, quote, wallet?.status, last, verifiedAt])
   const profit = wallet && (price || !wallet.btc) ? equity(wallet, price ?? 0) - wallet.contributed : undefined
   const status = wallet?.status === 'Em execução' && !ready ? 'Aguardando dados' : wallet?.status
 
@@ -83,6 +90,7 @@ export default function App() {
       </header>
       <main>
         <div className="page-heading"><div><h1>{page.label}</h1><p>{page.caption}</p></div><span className="badge virtual">Dinheiro virtual</span></div>
+        {notifications.notice && <p className="notice" role="status">{notifications.notice}</p>}
         {error && <p className="notice" role="alert">{error}</p>}
         {(!online || market.quoteError || (quote && !ready && wallet?.status === 'Em execução')) && <p className="notice" role="status">
           {!online ? 'Modo offline. O simulador aguarda conexão. A última cotação salva é exibida quando disponível.' : market.quoteError || 'Simulador aguardando confirmação de dados recentes.'}
@@ -106,7 +114,7 @@ export default function App() {
         {page.id === 'mercado' && <><MarketMetrics market={market} full /><MarketChart market={market} days={days} setDays={setDays} theme={theme} /></>}
         {wallet && <>
           {page.id === 'carteira' && <WalletPage state={wallet} price={price} change={change} />}
-          {page.id === 'robo' && <Robot state={wallet} ready={ready} signals={signals} change={change} />}
+          {page.id === 'robo' && <Robot state={wallet} ready={ready} signals={signals} price={price} change={change} notificationPermission={notifications.permission} enableNotifications={notifications.enable} />}
           {page.id === 'operacoes' && <Operations operations={wallet.operations} />}
           {page.id === 'relatorios' && <Reports state={wallet} price={price} />}
           {page.id === 'configuracoes' && <Settings state={wallet} change={change} installed={installed} install={prompt ? () => {

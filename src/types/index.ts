@@ -8,7 +8,7 @@ export type Operation = {
 export type Movement = { time: number; amount: number; equity: number; kind: string }
 export type State = {
   cash: number; btc: number; cost: number; contributed: number; peak: number; drawdown: number;
-  fees: number; benchmark: number; operations: Operation[]; movements: Movement[];
+  fees: number; benchmark: number; profitPeak?: number; operations: Operation[]; movements: Movement[];
   status: 'Parado' | 'Em execução' | 'Pausado' | 'Limite atingido';
   risk: { fee: number; exposure: number; loss: number }; theme: 'dark' | 'light';
 }

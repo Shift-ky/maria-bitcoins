@@ -1,6 +1,6 @@
 # Mar Bitcoin IA
 
-Aplicação independente em português para acompanhar o mercado do Bitcoin e testar decisões com reais e BTC virtuais. As cotações vêm do CoinGecko. O simulador usa regras matemáticas de médias móveis.
+Aplicação independente em português para acompanhar o mercado do Bitcoin e testar decisões com reais e BTC virtuais. As cotações vêm do CoinGecko. O simulador compara cotações consecutivas.
 
 ## Executar com Docker
 
@@ -28,10 +28,12 @@ Esses testes cobrem carteira persistente, simulação, backtesting, exportação
 ## Carteira e simulador
 
 - A carteira começa com R$ 10.000 fictícios. Use **Minha carteira** para fazer aportes ou definir um novo capital inicial reiniciando a carteira.
-- Em **Robô IA**, inicie, pause ou interrompa o simulador enquanto a aplicação estiver aberta. A série de sete dias alimenta as médias de três e oito amostras. A execução usa a cotação mais recente validada e registra uma decisão por horário de cotação.
-- Uma compra usa até 15% do patrimônio, respeitando o saldo, a taxa e o limite de exposição. Uma valorização que leve a exposição acima do limite leva ao fechamento da posição na próxima avaliação. Ao atingir o limite de queda desde o pico, a simulação para com a posição atual.
+- Em **Robô IA**, inicie, pause ou interrompa o simulador enquanto a aplicação estiver aberta. A primeira cotação válida define a referência. Uma alta abre uma posição virtual quando a carteira está sem BTC. O limite de exposição vale na compra. Carteiras novas começam com limite de 100%, e carteiras existentes mantêm o limite salvo.
+- A venda é disparada quando o lucro líquido estimado fica em 70% ou menos do maior lucro líquido registrado na posição. Sem taxas, uma posição comprada por R$ 100 que atingiu R$ 130 tem pico de lucro de R$ 30. O gatilho fica em R$ 121. A venda usa a cotação registrada no momento do disparo, que pode passar pelo gatilho entre consultas.
+- O limite de queda patrimonial ainda interrompe a simulação. Se a mesma cotação também acionar a venda por recuo do lucro, a venda simulada é registrada antes da interrupção.
+- As compras e vendas geram avisos no painel. Ative as notificações do navegador na aba **Robô IA** para receber os mesmos avisos pelo sistema. A venda mostra o lucro ou prejuízo líquido após as taxas.
 - Os relatórios mostram o resultado realizado em janelas móveis de 1, 7 e 30 dias e a evolução patrimonial observada. O resultado de uma venda inclui as taxas de compra e venda. A referência de manter BTC usa o mesmo capital e os mesmos aportes, sem taxas.
-- O backtesting usa as oito observações anteriores para gerar o sinal e a observação seguinte para executar. A frequência das amostras depende do período fornecido pelo CoinGecko. O modelo usa preços pontuais e desconsidera derrapagem e liquidez.
+- O backtesting usa as duas observações anteriores para gerar o sinal e a observação seguinte para executar. A frequência das amostras depende do período fornecido pelo CoinGecko. O modelo usa preços pontuais e desconsidera derrapagem e liquidez.
 - A cotação atual é consultada a cada 90 segundos e a série de mercado a cada seis minutos. A aplicação reduz a frequência após falhas de cotação e conserva os dados em cache. Uma falha, um preço desatualizado ou a perda da conexão suspendem novas decisões até a recuperação.
 - A carteira, as operações, as configurações e os dados recentes ficam no IndexedDB deste navegador. A limpeza dos dados do site reinicia a carteira. Um CSV exporta as decisões visíveis no filtro da página **Operações**.
 

@@ -6,7 +6,7 @@ export function createWallet(amount = 10000, time = Date.now()): State {
   return {
     cash: amount, contributed: amount, btc: 0, cost: 0, peak: amount, drawdown: 0,
     fees: 0, benchmark: 0, operations: [], movements: [{ time, amount, equity: amount, kind: 'Saldo inicial' }],
-    status: 'Parado', risk: { fee: 0.25, exposure: 40, loss: 10 }, theme: 'dark',
+    status: 'Parado', risk: { fee: 0.25, exposure: 100, loss: 10 }, theme: 'dark',
   }
 }
 
@@ -32,18 +32,14 @@ export function execute(state: State, point: Point, decision: { side: Side; reas
   let { cash, btc, cost } = state
   let quantity = 0, value = 0, fee = 0
   let result: number | null = null
-  if (limit) {
+  if (limit && side !== 'Venda') {
     side = 'Manutenção'
     reason = 'Simulação interrompida pelo limite de perda desde o pico.'
   }
   const maxExposure = state.risk.exposure / 100
   const room = (total * maxExposure - btc * price) / (1 + maxExposure * feeRate)
-  if (!limit && btc > 0 && room < -0.01) {
-    side = 'Venda'
-    reason = 'Redução da posição porque a exposição ultrapassou o limite configurado.'
-  }
   if (side === 'Compra') {
-    value = Math.max(0, Math.min(room, cash / (1 + feeRate), total * 0.15))
+    value = Math.max(0, Math.min(room, cash / (1 + feeRate)))
     if (value >= 0.01) {
       quantity = value / price
       fee = value * feeRate
@@ -73,24 +69,37 @@ export function execute(state: State, point: Point, decision: { side: Side; reas
   const current = cash + btc * price
   const drawdown = Math.max(state.drawdown, (peak - current) / peak * 100)
   return {
-    ...state, cash, btc, cost, peak, drawdown, fees: state.fees + fee,
+    ...state, cash, btc, cost, peak, drawdown, profitPeak: side === 'Manutenção' ? state.profitPeak : 0, fees: state.fees + fee,
     benchmark: state.benchmark || state.contributed / price,
     status: limit || (peak - current) / peak * 100 >= state.risk.loss ? 'Limite atingido' : state.status,
     operations: [...state.operations, { id: String(time), time, side, price, btc: quantity, value, fee, result, reason, before: state.cash, after: cash, equity: current }],
   }
 }
 
+export function netPositionProfit(state: State, price: number) {
+  return state.btc * price * (1 - state.risk.fee / 100) - state.cost
+}
+
+export function evaluatePrice(state: State, observed: Point, previous = state.operations.at(-1)?.price, execution = observed): State {
+  if (execution.time <= (state.operations.at(-1)?.time ?? -Infinity)) return state
+  if (!state.btc) return execute(state, execution, analyze(previous, observed.price))
+  const profit = netPositionProfit(state, observed.price)
+  const previousPeak = state.profitPeak ?? (previous === undefined ? 0 : netPositionProfit(state, previous))
+  const peak = Math.max(0, previousPeak, profit)
+  return execute({ ...state, profitPeak: peak }, execution, analyze(previous, observed.price, { profit, peak }))
+}
+
 export function backtest(points: Point[], capital: number, risk: State['risk']) {
-  if (points.length < 9) throw new Error('O teste precisa de pelo menos nove preços históricos.')
+  if (points.length < 3) throw new Error('O teste precisa de pelo menos três preços históricos.')
   let state = { ...createWallet(capital, points[0].time), risk }
-  for (let i = 8; i < points.length; i++) {
+  for (let i = 2; i < points.length; i++) {
     if (state.status === 'Limite atingido') {
       const total = equity(state, points[i].price)
       const peak = Math.max(state.peak, total)
       state = { ...state, peak, drawdown: Math.max(state.drawdown, (peak - total) / peak * 100) }
       continue
     }
-    state = execute(state, points[i], analyze(points.slice(i - 8, i)))
+    state = evaluatePrice(state, points[i - 1], points[i - 2].price, points[i])
   }
-  return { state, total: equity(state, points.at(-1)!.price), hold: capital / points[8].price * points.at(-1)!.price }
+  return { state, total: equity(state, points.at(-1)!.price), hold: capital / points[2].price * points.at(-1)!.price }
 }
