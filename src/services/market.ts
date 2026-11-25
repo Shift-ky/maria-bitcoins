@@ -2,10 +2,26 @@ import type { Point, Quote } from '../types'
 
 const endpoint = 'https://api.coingecko.com/api/v3'
 async function request(path: string) {
-  const response = await fetch(endpoint + path, { signal: AbortSignal.timeout(12000) })
+  const fetchWithTimeout = () => fetch(endpoint + path, { signal: AbortSignal.timeout(12000) })
+  let response: Response
+  try {
+    response = await fetchWithTimeout()
+  } catch {
+    if (globalThis.navigator?.onLine === false) throw new Error('Sem conexão para consultar o CoinGecko.')
+    await new Promise(resolve => setTimeout(resolve, 1500))
+    try {
+      response = await fetchWithTimeout()
+    } catch {
+      throw new Error('Não foi possível conectar ao CoinGecko. Use Atualizar ou aguarde a próxima tentativa automática.')
+    }
+  }
   if (response.status === 429) throw new Error('Limite de consultas do CoinGecko atingido. Uma nova tentativa será feita em breve.')
   if (!response.ok) throw new Error('CoinGecko temporariamente indisponível.')
-  return response.json()
+  try {
+    return await response.json()
+  } catch {
+    throw new Error('O CoinGecko enviou uma resposta inválida. Tente atualizar em instantes.')
+  }
 }
 export async function fetchQuote(): Promise<Quote> {
   const data = await request('/simple/price?ids=bitcoin&vs_currencies=brl,usd&include_24hr_change=true&include_24hr_vol=true&include_last_updated_at=true')

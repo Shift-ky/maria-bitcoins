@@ -74,3 +74,21 @@ test('celular: navegação, tema e suspensão offline', async ({ page, context }
   await expect(page.getByRole('heading', { name: 'Configurações', exact: true })).toBeVisible()
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(375)
 })
+
+test('preserva a cotação durante falha de rede e recupera com Atualizar', async ({ page, context }) => {
+  await page.goto(origin)
+  const quote = page.getByText(/350\.000,00/)
+  await expect(quote).toBeVisible()
+  const quoteUrl = 'https://api.coingecko.com/api/v3/simple/price?**'
+  const fail = (route: import('@playwright/test').Route) => route.abort('failed')
+  await context.route(quoteUrl, fail)
+  await page.getByRole('button', { name: 'Atualizar' }).click()
+  const notice = page.getByText(/Não foi possível conectar ao CoinGecko/)
+  await expect(notice).toBeVisible()
+  await expect(quote).toBeVisible()
+  await expect(page.getByText(/Cotação armazenada de/)).toBeVisible()
+  await context.unroute(quoteUrl, fail)
+  await page.getByRole('button', { name: 'Atualizar' }).click()
+  await expect(notice).toHaveCount(0)
+  await expect(page.getByText(/Cotação de/)).toBeVisible()
+})
